@@ -5,6 +5,7 @@
     <artifactId>corelia-provider-flowable</artifactId>
     <dependencies>
         <dependency><groupId>ru.corelia</groupId><artifactId>corelia-common</artifactId><version>${project.version}</version></dependency>
+        <dependency><groupId>ru.corelia</groupId><artifactId>corelia-configuration</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>ru.corelia</groupId><artifactId>corelia-provider-spi</artifactId><version>${project.version}</version></dependency>
         <dependency><groupId>org.flowable</groupId><artifactId>flowable-spring-boot-starter-process</artifactId><version>8.0.0</version></dependency>
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>runtime</scope></dependency>
