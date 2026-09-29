@@ -1,5 +1,6 @@
 package ru.corelia.providerflowable;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,13 +16,19 @@ import tools.jackson.databind.JsonNode;
 @Component
 public final class FlowableWorkflowBindings {
     private final Map<String, JsonNode> bindings;
+    private final Path packageRoot;
 
     public FlowableWorkflowBindings(ConfigurationLoader.LoadedConfiguration configuration) {
-        this(configuration.providerBindings());
+        this(configuration.providerBindings(), configuration.packageRoot());
     }
 
     FlowableWorkflowBindings(Map<String, JsonNode> bindings) {
+        this(bindings, null);
+    }
+
+    private FlowableWorkflowBindings(Map<String, JsonNode> bindings, Path packageRoot) {
         this.bindings = Map.copyOf(bindings);
+        this.packageRoot = packageRoot;
     }
 
     /** Возвращает явно заданный ключ определения Flowable для вида документа. */
@@ -60,5 +67,15 @@ public final class FlowableWorkflowBindings {
                     Json.text(action, "status"), Json.text(action, "tone").isEmpty() ? "success" : Json.text(action, "tone"), values));
         }
         return List.copyOf(result);
+    }
+
+    /** Возвращает проверенный путь BPMN из configuration package. */
+    public Path bpmnResource(String documentType) {
+        JsonNode binding = bindings.get(documentType);
+        String path = binding == null ? "" : Json.text(binding.path("workflow").path("flowable"), "bpmn");
+        if (packageRoot == null || path.isBlank()) throw new ConfigurationException("Не задан Flowable BPMN resource: " + documentType);
+        Path resource = packageRoot.resolve(path).normalize();
+        if (!resource.startsWith(packageRoot)) throw new ConfigurationException("Недопустимый путь Flowable BPMN: " + documentType);
+        return resource;
     }
 }
