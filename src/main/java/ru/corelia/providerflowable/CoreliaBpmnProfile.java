@@ -41,6 +41,10 @@ public final class CoreliaBpmnProfile {
     private static void validateServiceTask(ServiceTask task) {
         if (!blank(task.getImplementation()) || !blank(task.getImplementationType()) || !blank(task.getType()))
             throw new ConfigurationException("Service task не может задавать implementation/type: " + task.getId());
+        if (!task.isAsynchronous())
+            throw new ConfigurationException("Service task должен выполняться через Flowable async executor: " + task.getId());
+        if (blank(task.getFailedJobRetryTimeCycleValue()))
+            throw new ConfigurationException("Service task должен задавать retry policy: " + task.getId());
         String type = task.getAttributes().values().stream().flatMap(java.util.Collection::stream)
                 .filter(attribute -> "taskType".equals(attribute.getName())).map(attribute -> attribute.getValue())
                 .filter(value -> value != null && !value.isBlank()).findFirst().orElse("");

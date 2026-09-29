@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class CoreliaBpmnProfileTest {
     @Test
     void acceptsControlledDocumentCommandServiceTask() {
-        var task = new ServiceTask(); task.setId("commit");
+        var task = safeServiceTask();
         var attribute = new ExtensionAttribute("taskType", "document-command");
         attribute.setNamespace("urn:corelia:bpmn"); task.addAttribute(attribute);
 
@@ -24,7 +24,7 @@ class CoreliaBpmnProfileTest {
 
     @Test
     void rejectsArbitraryJavaServiceTask() {
-        var task = new ServiceTask(); task.setId("unsafe"); task.setImplementation("com.customer.UnsafeDelegate");
+        var task = safeServiceTask(); task.setImplementation("com.customer.UnsafeDelegate");
 
         assertThrows(ConfigurationException.class, () -> CoreliaBpmnProfile.validate(model(task)));
     }
@@ -32,6 +32,19 @@ class CoreliaBpmnProfileTest {
     @Test
     void rejectsUnsupportedBpmnElements() {
         assertThrows(ConfigurationException.class, () -> CoreliaBpmnProfile.validate(model(new SubProcess())));
+    }
+
+    @Test
+    void rejectsServiceTaskWithoutAsyncRetryPolicy() {
+        var task = safeServiceTask(); task.setAsynchronous(false);
+
+        assertThrows(ConfigurationException.class, () -> CoreliaBpmnProfile.validate(model(task)));
+    }
+
+    private static ServiceTask safeServiceTask() {
+        var task = new ServiceTask(); task.setId("commit"); task.setAsynchronous(true);
+        task.setFailedJobRetryTimeCycleValue("R3/PT1M");
+        return task;
     }
 
     private static BpmnModel model(org.flowable.bpmn.model.FlowElement element) {
