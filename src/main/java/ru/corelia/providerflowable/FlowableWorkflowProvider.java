@@ -14,7 +14,7 @@ import ru.corelia.provider.model.WorkflowContext;
 import ru.corelia.support.Json;
 
 /** Flowable-реализация запуска и чтения процессов Corelia. */
-@Component
+@Component("flowableWorkflowProvider")
 public final class FlowableWorkflowProvider implements WorkflowProvider {
     static final String DOCUMENT_ID = "coreliaDocumentId";
     static final String DOCUMENT_TYPE = "coreliaDocumentType";

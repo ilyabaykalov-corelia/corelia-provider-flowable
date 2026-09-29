@@ -44,5 +44,10 @@ public final class ProcessBindingRepository {
             throw new IllegalStateException("Не найдена зарезервированная привязка Flowable процесса");
     }
 
+    public boolean ownsProcess(String processInstanceId) {
+        return jdbc.queryForObject("select count(*) from process_binding where engine = 'flowable' and process_instance_id = ?",
+                Long.class, processInstanceId) > 0;
+    }
+
     public record Binding(String processInstanceId, String definitionKey, Integer definitionVersion) { }
 }

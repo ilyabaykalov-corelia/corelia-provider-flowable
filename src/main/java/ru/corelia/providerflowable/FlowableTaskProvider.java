@@ -21,7 +21,7 @@ import ru.corelia.support.Json;
 import tools.jackson.databind.JsonNode;
 
 /** Преобразует Flowable user tasks в канонические модели Corelia. */
-@Component
+@Component("flowableTaskProvider")
 public final class FlowableTaskProvider implements TaskProvider {
     private final TaskService tasks;
     private final RepositoryService repository;
