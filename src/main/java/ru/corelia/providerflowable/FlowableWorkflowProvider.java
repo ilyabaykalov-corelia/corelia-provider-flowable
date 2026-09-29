@@ -5,6 +5,7 @@ import java.util.Map;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import ru.corelia.auth.AuthContext;
 import ru.corelia.http.ApiException;
 import ru.corelia.provider.WorkflowProvider;
@@ -25,17 +26,32 @@ public final class FlowableWorkflowProvider implements WorkflowProvider {
     private final RuntimeService runtime;
     private final HistoryService history;
     private final FlowableWorkflowBindings bindings;
+    private final ProcessBindingRepository processBindings;
 
-    public FlowableWorkflowProvider(RuntimeService runtime, HistoryService history, FlowableWorkflowBindings bindings) {
+    public FlowableWorkflowProvider(RuntimeService runtime, HistoryService history, FlowableWorkflowBindings bindings,
+                                    ProcessBindingRepository processBindings) {
         this.runtime = runtime;
         this.history = history;
         this.bindings = bindings;
+        this.processBindings = processBindings;
     }
 
     @Override
+    @Transactional
     public ProcessInstance start(WorkflowContext context, AuthContext auth) {
-        var instance = runtime.startProcessInstanceByKey(
-                bindings.definitionKey(context.documentType()), context.externalBusinessKey(), variables(context));
+        String definitionKey = bindings.definitionKey(context.documentType());
+        String action = "create", key = idempotencyKey(context);
+        var existing = processBindings.find(context.documentId(), context.documentType(), action, key);
+        if (existing.isPresent() && existing.get().processInstanceId() != null)
+            return process(existing.get().processInstanceId(), auth);
+        if (existing.isEmpty() && !processBindings.reserve(context.documentId(), context.documentType(), action, key, definitionKey))
+            existing = processBindings.find(context.documentId(), context.documentType(), action, key);
+        if (existing.isPresent()) {
+            if (existing.get().processInstanceId() != null) return process(existing.get().processInstanceId(), auth);
+            throw new ApiException(409, "Запуск процесса с этим ключом ещё выполняется");
+        }
+        var instance = runtime.startProcessInstanceByKey(definitionKey, context.externalBusinessKey(), variables(context));
+        processBindings.bind(context.documentId(), context.documentType(), action, key, instance.getId(), instance.getProcessDefinitionVersion());
         return new ProcessInstance(instance.getId(), context.documentId(), "ACTIVE", "flowable");
     }
 
@@ -65,5 +81,10 @@ public final class FlowableWorkflowProvider implements WorkflowProvider {
     private static String documentId(Map<String, Object> variables) {
         Object value = variables.get(DOCUMENT_ID);
         return value instanceof String id ? id : "";
+    }
+
+    private static String idempotencyKey(WorkflowContext context) {
+        if (context.creationKey() != null && !context.creationKey().isBlank()) return context.creationKey();
+        return context.documentType() + ":" + context.documentId() + ":create";
     }
 }
