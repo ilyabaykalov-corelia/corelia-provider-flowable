@@ -6,6 +6,8 @@ import org.flowable.bpmn.model.Process;
 import org.flowable.bpmn.model.ServiceTask;
 import org.flowable.bpmn.model.StartEvent;
 import org.flowable.bpmn.model.SubProcess;
+import org.flowable.bpmn.model.IntermediateCatchEvent;
+import org.flowable.bpmn.model.TimerEventDefinition;
 import org.junit.jupiter.api.Test;
 import ru.corelia.configuration.ConfigurationException;
 
@@ -32,6 +34,14 @@ class CoreliaBpmnProfileTest {
     @Test
     void rejectsUnsupportedBpmnElements() {
         assertThrows(ConfigurationException.class, () -> CoreliaBpmnProfile.validate(model(new SubProcess())));
+    }
+
+    @Test
+    void acceptsIntermediateTimerEvent() {
+        var timer = new IntermediateCatchEvent(); timer.setId("wait");
+        timer.addEventDefinition(new TimerEventDefinition());
+
+        assertDoesNotThrow(() -> CoreliaBpmnProfile.validate(model(timer)));
     }
 
     @Test
