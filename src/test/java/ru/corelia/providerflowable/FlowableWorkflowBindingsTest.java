@@ -20,4 +20,17 @@ class FlowableWorkflowBindingsTest {
         assertThrows(ConfigurationException.class,
                 () -> FlowableWorkflowBindings.definitionKey("CONTRACT", Json.object("workflow", Json.object())));
     }
+
+    @Test
+    void readsActionsForConcreteTaskDefinition() {
+        var bindings = new FlowableWorkflowBindings(java.util.Map.of("CONTRACT", Json.object("workflow", Json.object(
+                "flowable", Json.object("tasks", Json.object("review", Json.object("actions", java.util.List.of(
+                        Json.object("code", "approve", "label", "Approve", "status", "APPROVED",
+                                "parameters", Json.object("decision", "approve"))))))))));
+
+        var action = bindings.actions("CONTRACT", "review").getFirst();
+        assertEquals("approve", action.code());
+        assertEquals("APPROVED", action.status());
+        assertEquals("approve", action.parameters().get("decision").asString());
+    }
 }
