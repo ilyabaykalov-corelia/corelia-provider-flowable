@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.flowable.engine.TaskService;
+import org.flowable.engine.RepositoryService;
 import org.flowable.identitylink.api.IdentityLinkInfo;
 import org.flowable.task.api.Task;
 import org.flowable.task.api.TaskQuery;
@@ -14,6 +15,7 @@ import ru.corelia.http.ApiException;
 import ru.corelia.provider.TaskProvider;
 import ru.corelia.provider.model.TaskSearchRequest;
 import ru.corelia.provider.model.TaskStatus;
+import ru.corelia.provider.model.WorkflowAction;
 import ru.corelia.provider.model.WorkflowTask;
 import ru.corelia.support.Json;
 import tools.jackson.databind.JsonNode;
@@ -22,10 +24,12 @@ import tools.jackson.databind.JsonNode;
 @Component
 public final class FlowableTaskProvider implements TaskProvider {
     private final TaskService tasks;
+    private final RepositoryService repository;
     private final FlowableWorkflowBindings bindings;
 
-    public FlowableTaskProvider(TaskService tasks, FlowableWorkflowBindings bindings) {
+    public FlowableTaskProvider(TaskService tasks, RepositoryService repository, FlowableWorkflowBindings bindings) {
         this.tasks = tasks;
+        this.repository = repository;
         this.bindings = bindings;
     }
 
@@ -108,7 +112,12 @@ public final class FlowableTaskProvider implements TaskProvider {
                 value(task.getAssignee()), value(task.getAssignee()), role(task.getIdentityLinks()),
                 fallback(task.getName(), task.getTaskDefinitionKey()), value(task.getDescription()),
                 attributes(variables.get(FlowableWorkflowProvider.ATTRIBUTES)),
-                bindings.actions(documentType, task.getTaskDefinitionKey()));
+                actions(task, documentType));
+    }
+
+    private List<WorkflowAction> actions(Task task, String documentType) {
+        var actions = CoreliaBpmnActions.actions(repository.getBpmnModel(task.getProcessDefinitionId()), task.getTaskDefinitionKey());
+        return actions.isEmpty() ? bindings.actions(documentType, task.getTaskDefinitionKey()) : actions;
     }
 
     private static String status(String state) {
