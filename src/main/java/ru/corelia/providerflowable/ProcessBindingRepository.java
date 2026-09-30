@@ -1,5 +1,6 @@
 package ru.corelia.providerflowable;
 
+import java.sql.Timestamp;
 import java.time.Instant;
 import org.springframework.dao.DuplicateKeyException;
 import java.util.Optional;
@@ -30,7 +31,7 @@ public class ProcessBindingRepository {
             return jdbc.update("""
                     insert into process_binding (document_id, document_type, action, idempotency_key, definition_key, engine, created_at)
                     values (?, ?, ?, ?, ?, 'flowable', ?)
-                    """, documentId, documentType, action, key, definitionKey, Instant.now()) == 1;
+                    """, documentId, documentType, action, key, definitionKey, Timestamp.from(Instant.now())) == 1;
         } catch (DuplicateKeyException ignored) {
             return false;
         }
