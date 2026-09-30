@@ -20,14 +20,14 @@ class FlowableBpmnDeployerTest {
         Path bpmn = Files.createTempFile("approval", ".bpmn20.xml");
         try {
             Files.writeString(bpmn, bpmn(""));
-            FlowableBpmnDeployer.deploy(engine.getRepositoryService(), "application", "approval", bpmn);
-            FlowableBpmnDeployer.deploy(engine.getRepositoryService(), "application", "approval", bpmn);
+            FlowableBpmnDeployer.deployIfMissing(engine.getRepositoryService(), "application", "approval", bpmn);
+            FlowableBpmnDeployer.deployIfMissing(engine.getRepositoryService(), "application", "approval", bpmn);
 
             assertEquals(1, engine.getRepositoryService().createProcessDefinitionQuery()
                     .processDefinitionKey("approval").count());
 
             Files.writeString(bpmn, bpmn("<userTask id=\"review\" name=\"Review\"/>"));
-            FlowableBpmnDeployer.deploy(engine.getRepositoryService(), "application", "approval", bpmn);
+            FlowableBpmnDeployer.deployIfMissing(engine.getRepositoryService(), "application", "approval", bpmn);
 
             assertEquals(2, engine.getRepositoryService().createProcessDefinitionQuery()
                     .processDefinitionKey("approval").count());

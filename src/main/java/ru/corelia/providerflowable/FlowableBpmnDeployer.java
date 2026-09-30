@@ -17,11 +17,14 @@ public final class FlowableBpmnDeployer implements ApplicationRunner {
     private final RepositoryService repository;
     private final DocumentTypeCatalog types;
     private final FlowableWorkflowBindings bindings;
+    private final FlowableBpmnDeploymentLock deploymentLock;
 
-    public FlowableBpmnDeployer(RepositoryService repository, DocumentTypeCatalog types, FlowableWorkflowBindings bindings) {
+    public FlowableBpmnDeployer(RepositoryService repository, DocumentTypeCatalog types, FlowableWorkflowBindings bindings,
+                                FlowableBpmnDeploymentLock deploymentLock) {
         this.repository = repository;
         this.types = types;
         this.bindings = bindings;
+        this.deploymentLock = deploymentLock;
     }
 
     @Override
@@ -33,7 +36,7 @@ public final class FlowableBpmnDeployer implements ApplicationRunner {
         try {
             String key = bindings.definitionKey(documentType);
             Path resource = bindings.bpmnResource(documentType);
-            deploy(repository, documentType, key, resource);
+            deploymentLock.deployIfMissing(repository, documentType, key, resource);
         } catch (ConfigurationException error) {
             throw error;
         } catch (Exception error) {
@@ -41,7 +44,7 @@ public final class FlowableBpmnDeployer implements ApplicationRunner {
         }
     }
 
-    static void deploy(RepositoryService repository, String documentType, String key, Path resource) throws Exception {
+    static void deployIfMissing(RepositoryService repository, String documentType, String key, Path resource) throws Exception {
         byte[] source = Files.readAllBytes(resource);
         var model = new BpmnXMLConverter().convertToBpmnModel(() -> new ByteArrayInputStream(source), false, false);
         CoreliaBpmnProfile.validate(model);
