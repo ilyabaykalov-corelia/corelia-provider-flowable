@@ -3,6 +3,7 @@ package ru.corelia.providerflowable;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.flowable.engine.HistoryService;
+import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -10,6 +11,7 @@ import ru.corelia.auth.AuthContext;
 import ru.corelia.http.ApiException;
 import ru.corelia.provider.WorkflowProvider;
 import ru.corelia.provider.model.ProcessInstance;
+import ru.corelia.provider.model.WorkflowDefinition;
 import ru.corelia.provider.model.WorkflowContext;
 import ru.corelia.support.Json;
 
@@ -25,13 +27,15 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
 
     private final RuntimeService runtime;
     private final HistoryService history;
+    private final RepositoryService repository;
     private final FlowableWorkflowBindings bindings;
     private final ProcessBindingRepository processBindings;
 
-    public FlowableWorkflowProvider(RuntimeService runtime, HistoryService history, FlowableWorkflowBindings bindings,
+    public FlowableWorkflowProvider(RuntimeService runtime, HistoryService history, RepositoryService repository, FlowableWorkflowBindings bindings,
                                     ProcessBindingRepository processBindings) {
         this.runtime = runtime;
         this.history = history;
+        this.repository = repository;
         this.bindings = bindings;
         this.processBindings = processBindings;
     }
@@ -65,6 +69,21 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
         if (completed == null) throw new ApiException(404, "Экземпляр процесса не найден");
         return new ProcessInstance(completed.getId(), documentId(completed.getProcessVariables()),
                 completed.getEndTime() == null ? "ACTIVE" : "COMPLETED", "flowable");
+    }
+
+    @Override
+    public java.util.List<WorkflowDefinition> definitions(AuthContext auth) {
+        return bindings.definitionKeys().stream().map(key -> repository.createProcessDefinitionQuery()
+                        .processDefinitionKey(key).latestVersion().singleResult())
+                .filter(java.util.Objects::nonNull)
+                .map(definition -> {
+                    var deployment = repository.createDeploymentQuery().deploymentId(definition.getDeploymentId()).singleResult();
+                    return new WorkflowDefinition(
+                            definition.getName() == null || definition.getName().isBlank() ? definition.getKey() : definition.getName(),
+                            definition.getKey(), definition.getVersion(), false, "PUBLISHED",
+                            deployment == null ? null : deployment.getDeploymentTime().toInstant(), null,
+                            runtime.createProcessInstanceQuery().processDefinitionKey(definition.getKey()).count());
+                }).sorted(java.util.Comparator.comparing(WorkflowDefinition::key)).toList();
     }
 
     private static Map<String, Object> variables(WorkflowContext context) {

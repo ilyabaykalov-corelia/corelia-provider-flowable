@@ -38,6 +38,12 @@ public final class FlowableWorkflowBindings {
         return definitionKey(documentType, bindings.get(documentType));
     }
 
+    /** Возвращает ключи процессов, объявленные configuration package. */
+    public java.util.Set<String> definitionKeys() {
+        return bindings.entrySet().stream().map(entry -> definitionKey(entry.getKey(), entry.getValue()))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
     static String definitionKey(String documentType, JsonNode binding) {
         JsonNode flowable = binding == null ? null : binding.path("workflow").path("flowable");
         if (flowable == null || !flowable.isObject()
