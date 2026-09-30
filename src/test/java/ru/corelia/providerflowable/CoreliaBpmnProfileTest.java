@@ -20,6 +20,8 @@ class CoreliaBpmnProfileTest {
         var task = safeServiceTask();
         var attribute = new ExtensionAttribute("taskType", "document-command");
         attribute.setNamespace("urn:corelia:bpmn"); task.addAttribute(attribute);
+        var command = new ExtensionAttribute("command", "approve");
+        command.setNamespace("urn:corelia:bpmn"); task.addAttribute(command);
 
         assertDoesNotThrow(() -> CoreliaBpmnProfile.validate(model(task)));
     }
@@ -52,7 +54,7 @@ class CoreliaBpmnProfileTest {
     }
 
     private static ServiceTask safeServiceTask() {
-        var task = new ServiceTask(); task.setId("commit"); task.setAsynchronous(true);
+        var task = new ServiceTask(); task.setId("commit"); task.setImplementation("${coreliaServiceTask}"); task.setImplementationType("delegateExpression"); task.setAsynchronous(true);
         task.setFailedJobRetryTimeCycleValue("R3/PT1M");
         return task;
     }

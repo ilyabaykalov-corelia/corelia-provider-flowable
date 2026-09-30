@@ -17,7 +17,7 @@ import ru.corelia.configuration.ConfigurationException;
 
 /** Ограничивает BPMN customer package безопасным профилем Corelia. */
 public final class CoreliaBpmnProfile {
-    private static final Set<String> SERVICE_TASK_TYPES = Set.of("document-command", "notification");
+    private static final Set<String> SERVICE_TASK_TYPES = Set.of("document-command");
 
     private CoreliaBpmnProfile() { }
 
@@ -39,17 +39,27 @@ public final class CoreliaBpmnProfile {
     }
 
     private static void validateServiceTask(ServiceTask task) {
-        if (!blank(task.getImplementation()) || !blank(task.getImplementationType()) || !blank(task.getType()))
-            throw new ConfigurationException("Service task не может задавать implementation/type: " + task.getId());
+        if (!"${coreliaServiceTask}".equals(task.getImplementation())
+                || !"delegateExpression".equals(task.getImplementationType()) || !blank(task.getType()))
+            throw new ConfigurationException("Service task должен использовать контролируемый delegate Corelia: " + task.getId());
         if (!task.isAsynchronous())
             throw new ConfigurationException("Service task должен выполняться через Flowable async executor: " + task.getId());
         if (blank(task.getFailedJobRetryTimeCycleValue()))
             throw new ConfigurationException("Service task должен задавать retry policy: " + task.getId());
-        String type = task.getAttributes().values().stream().flatMap(java.util.Collection::stream)
-                .filter(attribute -> "taskType".equals(attribute.getName())).map(attribute -> attribute.getValue())
-                .filter(value -> value != null && !value.isBlank()).findFirst().orElse("");
+        String type = serviceTaskType(task);
         if (!SERVICE_TASK_TYPES.contains(type))
             throw new ConfigurationException("Не задан разрешённый Corelia service task type: " + task.getId());
+        if (type.equals("document-command") && serviceTaskCommand(task).isBlank())
+            throw new ConfigurationException("Не задана document command service task: " + task.getId());
+    }
+
+    static String serviceTaskType(ServiceTask task) { return attribute(task, "taskType"); }
+    static String serviceTaskCommand(ServiceTask task) { return attribute(task, "command"); }
+
+    private static String attribute(ServiceTask task, String name) {
+        return task.getAttributes().values().stream().flatMap(java.util.Collection::stream)
+                .filter(attribute -> name.equals(attribute.getName())).map(attribute -> attribute.getValue())
+                .filter(value -> value != null && !value.isBlank()).findFirst().orElse("");
     }
 
     private static boolean blank(String value) { return value == null || value.isBlank(); }
