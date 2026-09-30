@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import ru.corelia.configuration.ConfigurationException;
 import ru.corelia.configuration.ConfigurationLoader;
@@ -18,6 +19,7 @@ public final class FlowableWorkflowBindings {
     private final Map<String, JsonNode> bindings;
     private final Path packageRoot;
 
+    @Autowired
     public FlowableWorkflowBindings(ConfigurationLoader.LoadedConfiguration configuration) {
         this(configuration.providerBindings(), configuration.packageRoot());
     }
