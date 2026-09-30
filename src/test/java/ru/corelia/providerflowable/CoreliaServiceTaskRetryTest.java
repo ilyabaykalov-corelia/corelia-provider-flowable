@@ -53,8 +53,9 @@ class CoreliaServiceTaskRetryTest {
                   xmlns:corelia="urn:corelia:bpmn" targetNamespace="urn:corelia:test">
                   <process id="service-task" isExecutable="true">
                     <startEvent id="start"><outgoing>start-to-command</outgoing></startEvent>
-                    <serviceTask id="command" flowable:delegateExpression="${coreliaServiceTask}" flowable:async="true" flowable:failedJobRetryTimeCycle="R3/PT1M"
+                    <serviceTask id="command" flowable:delegateExpression="${coreliaServiceTask}" flowable:async="true"
                       corelia:taskType="document-command" corelia:command="approve">
+                      <extensionElements><flowable:failedJobRetryTimeCycle>R3/PT1M</flowable:failedJobRetryTimeCycle></extensionElements>
                       <incoming>start-to-command</incoming><outgoing>command-to-end</outgoing>
                     </serviceTask>
                     <endEvent id="end"><incoming>command-to-end</incoming></endEvent>
