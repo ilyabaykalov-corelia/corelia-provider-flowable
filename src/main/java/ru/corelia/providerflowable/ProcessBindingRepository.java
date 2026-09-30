@@ -8,7 +8,7 @@ import org.springframework.stereotype.Repository;
 
 /** Хранит идемпотентную привязку команды создания к экземпляру Flowable. */
 @Repository
-public final class ProcessBindingRepository {
+public class ProcessBindingRepository {
     private final JdbcTemplate jdbc;
 
     public ProcessBindingRepository(JdbcTemplate jdbc) {
