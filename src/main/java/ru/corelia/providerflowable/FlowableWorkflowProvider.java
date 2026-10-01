@@ -1,7 +1,12 @@
 package ru.corelia.providerflowable;
 
 import java.util.LinkedHashMap;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
+import org.flowable.bpmn.converter.BpmnXMLConverter;
+import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.engine.HistoryService;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.RuntimeService;
@@ -13,6 +18,8 @@ import ru.corelia.provider.WorkflowProvider;
 import ru.corelia.provider.model.ProcessInstance;
 import ru.corelia.provider.model.WorkflowDefinition;
 import ru.corelia.provider.model.WorkflowContext;
+import ru.corelia.provider.model.WorkflowValidation;
+import ru.corelia.provider.model.WorkflowValidationError;
 import ru.corelia.support.Json;
 
 /** Flowable-реализация запуска и чтения процессов Corelia. */
@@ -84,6 +91,33 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
                             deployment == null ? null : deployment.getDeploymentTime().toInstant(), null,
                             runtime.createProcessInstanceQuery().processDefinitionKey(definition.getKey()).count());
                 }).sorted(java.util.Comparator.comparing(WorkflowDefinition::key)).toList();
+    }
+
+    @Override
+    public WorkflowValidation validateDefinition(String key, String bpmnXml, AuthContext auth) {
+        try {
+            var model = new BpmnXMLConverter().convertToBpmnModel(
+                    () -> new ByteArrayInputStream(bpmnXml.getBytes(StandardCharsets.UTF_8)), false, false);
+            if (model.getProcessById(key) == null)
+                return invalid("PROCESS_KEY", "BPMN process id должен совпадать с ключом процесса: " + key);
+            CoreliaBpmnProfile.validate(model);
+            for (var process : model.getProcesses()) for (var element : process.getFlowElements()) {
+                if (element instanceof SequenceFlow flow && (flow.getSourceRef() == null || flow.getTargetRef() == null))
+                    return invalid("SEQUENCE_FLOW", "Sequence flow должен иметь исходный и целевой элементы: " + flow.getId());
+            }
+            return new WorkflowValidation(List.of());
+        } catch (RuntimeException error) {
+            return invalid("BPMN", message(error));
+        }
+    }
+
+    private static WorkflowValidation invalid(String code, String message) {
+        return new WorkflowValidation(List.of(new WorkflowValidationError(code, message)));
+    }
+
+    private static String message(RuntimeException error) {
+        return error.getMessage() == null || error.getMessage().isBlank()
+                ? "Некорректный BPMN XML" : error.getMessage();
     }
 
     private static Map<String, Object> variables(WorkflowContext context) {
