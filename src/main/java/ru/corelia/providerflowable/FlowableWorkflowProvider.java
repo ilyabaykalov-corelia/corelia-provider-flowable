@@ -138,6 +138,13 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
                 runtime.createProcessInstanceQuery().processDefinitionKey(key).count());
     }
 
+    @Override
+    public void retireDefinition(String key, AuthContext auth) {
+        if (repository.createProcessDefinitionQuery().processDefinitionKey(key).count() == 0)
+            throw new ApiException(404, "Опубликованный BPMN процесс не найден");
+        repository.suspendProcessDefinitionByKey(key, false, null);
+    }
+
     private static WorkflowValidation invalid(String code, String message) {
         return new WorkflowValidation(List.of(new WorkflowValidationError(code, message)));
     }
