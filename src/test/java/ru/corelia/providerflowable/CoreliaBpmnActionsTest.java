@@ -24,6 +24,19 @@ class CoreliaBpmnActionsTest {
         assertEquals("approve", result.parameters().get("action").asString());
     }
 
+    @Test
+    void readsEditorActionsFromCoreliaAttributes() {
+        var task = new UserTask(); task.setId("review");
+        task.addAttribute(attribute("actions", "approve, reject"));
+        task.addAttribute(attribute("labels", "Одобрить, Отклонить"));
+
+        var result = CoreliaBpmnActions.actions(model(task), "review");
+        assertEquals(2, result.size());
+        assertEquals("approve", result.getFirst().code());
+        assertEquals("Одобрить", result.getFirst().label());
+        assertEquals("reject", result.get(1).code());
+    }
+
     private static ExtensionElement element(String name) { var value = new ExtensionElement(); value.setName(name); value.setNamespace("urn:corelia:bpmn"); return value; }
     private static ExtensionAttribute attribute(String name, String value) { var result = new ExtensionAttribute(name, value); result.setNamespace("urn:corelia:bpmn"); return result; }
     private static BpmnModel model(UserTask task) { var process = new Process(); process.setId("approval"); process.addFlowElement(task); var model = new BpmnModel(); model.addProcess(process); return model; }

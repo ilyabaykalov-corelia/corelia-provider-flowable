@@ -35,11 +35,32 @@ public final class CoreliaBpmnActions {
             }
             result.add(new WorkflowAction(code, label, status, tone.isBlank() ? "success" : tone, parameters));
         }
+        if (result.isEmpty()) actionsFromAttributes(task, result);
         return List.copyOf(result);
+    }
+
+    /** Читает компактные действия, которые создаёт административный редактор Corelia. */
+    private static void actionsFromAttributes(UserTask task, List<WorkflowAction> result) {
+        String[] codes = attribute(task, "actions").split(",");
+        String[] labels = attribute(task, "labels").split(",");
+        for (int index = 0; index < codes.length; index++) {
+            String code = codes[index].trim();
+            if (code.isBlank()) continue;
+            String label = index < labels.length && !labels[index].trim().isBlank() ? labels[index].trim() : code;
+            var parameters = new LinkedHashMap<String, JsonNode>();
+            parameters.put("action", Json.MAPPER.getNodeFactory().textNode(code));
+            result.add(new WorkflowAction(code, label, "", "success", parameters));
+        }
     }
 
     private static String attribute(ExtensionElement element, String name) {
         return element.getAttributes().values().stream().flatMap(java.util.Collection::stream)
+                .filter(attribute -> name.equals(attribute.getName())).map(attribute -> attribute.getValue())
+                .filter(value -> value != null).findFirst().orElse("");
+    }
+
+    private static String attribute(UserTask task, String name) {
+        return task.getAttributes().values().stream().flatMap(java.util.Collection::stream)
                 .filter(attribute -> name.equals(attribute.getName())).map(attribute -> attribute.getValue())
                 .filter(value -> value != null).findFirst().orElse("");
     }
