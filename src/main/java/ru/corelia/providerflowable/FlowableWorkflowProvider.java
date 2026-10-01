@@ -5,6 +5,8 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import javax.xml.parsers.DocumentBuilderFactory;
 import org.flowable.bpmn.converter.BpmnXMLConverter;
 import org.flowable.bpmn.model.SequenceFlow;
 import org.flowable.engine.HistoryService;
@@ -103,6 +105,7 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
     @Override
     public WorkflowValidation validateDefinition(String key, String bpmnXml, AuthContext auth) {
         try {
+            validateNamespaces(bpmnXml);
             var model = new BpmnXMLConverter().convertToBpmnModel(
                     () -> new ByteArrayInputStream(bpmnXml.getBytes(StandardCharsets.UTF_8)), false, false);
             if (model.getProcessById(key) == null)
@@ -137,6 +140,33 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
 
     private static WorkflowValidation invalid(String code, String message) {
         return new WorkflowValidation(List.of(new WorkflowValidationError(code, message)));
+    }
+
+    /** Разрешает только BPMN, DI, Flowable и Corelia namespaces в XML черновика. */
+    private static void validateNamespaces(String bpmnXml) {
+        try {
+            var factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            var document = factory.newDocumentBuilder().parse(new ByteArrayInputStream(bpmnXml.getBytes(StandardCharsets.UTF_8)));
+            var allowed = Set.of("http://www.omg.org/spec/BPMN/20100524/MODEL", "http://www.omg.org/spec/BPMN/20100524/DI",
+                    "http://www.omg.org/spec/DD/20100524/DI", "http://www.omg.org/spec/DD/20100524/DC", "http://flowable.org/bpmn",
+                    "urn:corelia:bpmn", "http://www.w3.org/2001/XMLSchema-instance", "http://www.w3.org/XML/1998/namespace");
+            var nodes = document.getElementsByTagName("*");
+            for (int index = 0; index < nodes.getLength(); index++) {
+                var node = nodes.item(index);
+                if (!allowed.contains(node.getNamespaceURI())) throw new IllegalArgumentException("Неизвестный BPMN namespace: " + node.getNamespaceURI());
+                var attributes = node.getAttributes();
+                for (int attribute = 0; attribute < attributes.getLength(); attribute++) {
+                    var value = attributes.item(attribute);
+                    if (!value.getNodeName().startsWith("xmlns") && value.getNamespaceURI() != null && !allowed.contains(value.getNamespaceURI()))
+                        throw new IllegalArgumentException("Неизвестный BPMN extension: " + value.getNodeName());
+                }
+            }
+        } catch (Exception error) {
+            if (error instanceof IllegalArgumentException invalid) throw invalid;
+            throw new IllegalArgumentException("Некорректный BPMN XML", error);
+        }
     }
 
     private static String message(RuntimeException error) {

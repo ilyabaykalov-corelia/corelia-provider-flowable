@@ -25,8 +25,9 @@ public final class CoreliaBpmnProfile {
     public static void validate(BpmnModel model) {
         for (var process : model.getProcesses()) for (FlowElement element : process.getFlowElements()) {
             if (element instanceof ServiceTask task) validateServiceTask(task);
+            else if (element instanceof UserTask task) validateUserTask(task);
             else if (element instanceof IntermediateCatchEvent timer) validateTimer(timer);
-            else if (!(element instanceof StartEvent || element instanceof EndEvent || element instanceof UserTask
+            else if (!(element instanceof StartEvent || element instanceof EndEvent
                     || element instanceof ExclusiveGateway || element instanceof ParallelGateway || element instanceof SequenceFlow))
                 throw new ConfigurationException("Элемент BPMN не поддерживается профилем Corelia: " + element.getClass().getSimpleName());
         }
@@ -51,10 +52,26 @@ public final class CoreliaBpmnProfile {
             throw new ConfigurationException("Не задан разрешённый Corelia service task type: " + task.getId());
         if (type.equals("document-command") && serviceTaskCommand(task).isBlank())
             throw new ConfigurationException("Не задана document command service task: " + task.getId());
+        if (!serviceTaskCommand(task).matches("[A-Za-z][A-Za-z0-9_-]{0,127}"))
+            throw new ConfigurationException("Некорректная document command service task: " + task.getId());
+    }
+
+    private static void validateUserTask(UserTask task) {
+        String groups = attribute(task, "candidateGroups");
+        if (!groups.isBlank()) for (String group : groups.split(",")) {
+            if (!group.trim().matches("[A-Za-z][A-Za-z0-9_.-]{0,127}"))
+                throw new ConfigurationException("Некорректная candidate group user task: " + task.getId());
+        }
     }
 
     static String serviceTaskType(ServiceTask task) { return attribute(task, "taskType"); }
     static String serviceTaskCommand(ServiceTask task) { return attribute(task, "command"); }
+
+    private static String attribute(UserTask task, String name) {
+        return task.getAttributes().values().stream().flatMap(java.util.Collection::stream)
+                .filter(attribute -> name.equals(attribute.getName())).map(attribute -> attribute.getValue())
+                .filter(value -> value != null && !value.isBlank()).findFirst().orElse("");
+    }
 
     private static String attribute(ServiceTask task, String name) {
         return task.getAttributes().values().stream().flatMap(java.util.Collection::stream)
