@@ -88,17 +88,16 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
 
     @Override
     public java.util.List<WorkflowDefinition> definitions(AuthContext auth) {
-        return bindings.definitionKeys().stream().map(key -> repository.createProcessDefinitionQuery()
-                        .processDefinitionKey(key).latestVersion().singleResult())
-                .filter(java.util.Objects::nonNull)
+        return repository.createProcessDefinitionQuery().latestVersion().list().stream()
                 .map(definition -> {
                     var deployment = repository.createDeploymentQuery().deploymentId(definition.getDeploymentId()).singleResult();
+                    if (deployment == null || deployment.getName() == null || !deployment.getName().startsWith("corelia:")) return null;
                     return new WorkflowDefinition(
                             definition.getName() == null || definition.getName().isBlank() ? definition.getKey() : definition.getName(),
                             definition.getKey(), definition.getVersion(), false, "PUBLISHED",
                             deployment == null ? null : deployment.getDeploymentTime().toInstant(), null,
                             runtime.createProcessInstanceQuery().processDefinitionKey(definition.getKey()).count());
-                }).sorted(java.util.Comparator.comparing(WorkflowDefinition::key)).toList();
+                }).filter(java.util.Objects::nonNull).sorted(java.util.Comparator.comparing(WorkflowDefinition::key)).toList();
     }
 
     @Override
