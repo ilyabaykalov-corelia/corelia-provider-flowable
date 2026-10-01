@@ -46,13 +46,17 @@ public final class FlowableBpmnDeployer implements ApplicationRunner {
 
     static void deployIfMissing(RepositoryService repository, String documentType, String key, Path resource) throws Exception {
         byte[] source = Files.readAllBytes(resource);
+        deployIfMissing(repository, key, resource.getFileName().toString(), source);
+    }
+
+    static void deployIfMissing(RepositoryService repository, String key, String resourceName, byte[] source) throws Exception {
         var model = new BpmnXMLConverter().convertToBpmnModel(() -> new ByteArrayInputStream(source), false, false);
         CoreliaBpmnProfile.validate(model);
         if (model.getProcessById(key) == null)
-            throw new ConfigurationException("BPMN process key не соответствует Flowable binding: " + documentType);
+            throw new ConfigurationException("BPMN process key не соответствует ключу Corelia: " + key);
         String checksum = checksum(source), name = "corelia:" + key + ":" + checksum;
         if (repository.createDeploymentQuery().deploymentName(name).count() == 0)
-            repository.createDeployment().name(name).key(key).addBytes(resource.getFileName().toString(), source)
+            repository.createDeployment().name(name).key(key).addBytes(resourceName, source)
                     .enableDuplicateFiltering().deploy();
     }
 

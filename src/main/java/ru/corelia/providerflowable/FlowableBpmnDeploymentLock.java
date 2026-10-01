@@ -20,4 +20,10 @@ public class FlowableBpmnDeploymentLock {
         jdbc.queryForObject("select lock_id from flowable_bpmn_deployment_lock where lock_id = 1 for update", Integer.class);
         FlowableBpmnDeployer.deployIfMissing(repository, documentType, key, resource);
     }
+
+    @Transactional
+    public void deployDraft(RepositoryService repository, String key, String bpmnXml) throws Exception {
+        jdbc.queryForObject("select lock_id from flowable_bpmn_deployment_lock where lock_id = 1 for update", Integer.class);
+        FlowableBpmnDeployer.deployIfMissing(repository, key, key + ".bpmn20.xml", bpmnXml.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
 }

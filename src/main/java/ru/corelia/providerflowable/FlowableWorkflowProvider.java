@@ -37,14 +37,22 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
     private final RepositoryService repository;
     private final FlowableWorkflowBindings bindings;
     private final ProcessBindingRepository processBindings;
+    private final FlowableBpmnDeploymentLock deploymentLock;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public FlowableWorkflowProvider(RuntimeService runtime, HistoryService history, RepositoryService repository, FlowableWorkflowBindings bindings,
                                     ProcessBindingRepository processBindings) {
+        this(runtime, history, repository, bindings, processBindings, null);
+    }
+
+    public FlowableWorkflowProvider(RuntimeService runtime, HistoryService history, RepositoryService repository, FlowableWorkflowBindings bindings,
+                                    ProcessBindingRepository processBindings, FlowableBpmnDeploymentLock deploymentLock) {
         this.runtime = runtime;
         this.history = history;
         this.repository = repository;
         this.bindings = bindings;
         this.processBindings = processBindings;
+        this.deploymentLock = deploymentLock;
     }
 
     @Override
@@ -109,6 +117,23 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
         } catch (RuntimeException error) {
             return invalid("BPMN", message(error));
         }
+    }
+
+    @Override
+    public WorkflowDefinition publishDefinition(String key, String name, String bpmnXml, AuthContext auth) {
+        var validation = validateDefinition(key, bpmnXml, auth);
+        if (!validation.valid()) throw new ApiException(400, validation.errors().getFirst().message());
+        if (deploymentLock == null) throw new IllegalStateException("Не настроена блокировка публикации BPMN");
+        try {
+            deploymentLock.deployDraft(repository, key, bpmnXml);
+        } catch (Exception error) {
+            throw new ApiException(500, "Не удалось опубликовать BPMN процесс");
+        }
+        var definition = repository.createProcessDefinitionQuery().processDefinitionKey(key).latestVersion().singleResult();
+        var deployment = repository.createDeploymentQuery().deploymentId(definition.getDeploymentId()).singleResult();
+        return new WorkflowDefinition(name, key, definition.getVersion(), true, "PUBLISHED",
+                deployment.getDeploymentTime().toInstant(), auth.login(),
+                runtime.createProcessInstanceQuery().processDefinitionKey(key).count());
     }
 
     private static WorkflowValidation invalid(String code, String message) {
