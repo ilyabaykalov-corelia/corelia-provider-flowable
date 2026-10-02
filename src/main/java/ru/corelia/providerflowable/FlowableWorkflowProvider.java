@@ -41,12 +41,12 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
     private final ProcessBindingRepository processBindings;
     private final FlowableBpmnDeploymentLock deploymentLock;
 
-    @org.springframework.beans.factory.annotation.Autowired
     public FlowableWorkflowProvider(RuntimeService runtime, HistoryService history, RepositoryService repository, FlowableWorkflowBindings bindings,
                                     ProcessBindingRepository processBindings) {
         this(runtime, history, repository, bindings, processBindings, null);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public FlowableWorkflowProvider(RuntimeService runtime, HistoryService history, RepositoryService repository, FlowableWorkflowBindings bindings,
                                     ProcessBindingRepository processBindings, FlowableBpmnDeploymentLock deploymentLock) {
         this.runtime = runtime;
