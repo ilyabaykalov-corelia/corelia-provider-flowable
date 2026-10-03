@@ -23,6 +23,7 @@ import tools.jackson.databind.JsonNode;
 /** Преобразует Flowable user tasks в канонические модели Corelia. */
 @Component("flowableTaskProvider")
 public final class FlowableTaskProvider implements TaskProvider {
+    private static final String ASSIGNEE_ROLE = "coreliaAssigneeRole";
     private final TaskService tasks;
     private final RepositoryService repository;
     private final FlowableWorkflowBindings bindings;
@@ -63,7 +64,11 @@ public final class FlowableTaskProvider implements TaskProvider {
         WorkflowTask task = required(taskId, auth);
         if (!task.assignee().isEmpty() && !actor(auth).equals(task.assignee()))
             throw new ApiException(409, "Задача уже назначена другому пользователю");
-        if (task.assignee().isEmpty()) tasks.claim(taskId, actor(auth));
+        if (task.assignee().isEmpty()) {
+            if (!task.assigneeRole().isEmpty())
+                tasks.setVariableLocal(taskId, ASSIGNEE_ROLE, task.assigneeRole());
+            tasks.claim(taskId, actor(auth));
+        }
         tasks.startProgress(taskId, actor(auth));
     }
 
@@ -109,7 +114,7 @@ public final class FlowableTaskProvider implements TaskProvider {
         String documentId = string(variables.get(FlowableWorkflowProvider.DOCUMENT_ID));
         String documentType = string(variables.get(FlowableWorkflowProvider.DOCUMENT_TYPE));
         return new WorkflowTask(task.getId(), documentId, documentType, status(task.getState()),
-                value(task.getAssignee()), value(task.getAssignee()), role(task.getIdentityLinks()),
+                value(task.getAssignee()), value(task.getAssignee()), fallback(string(tasks.getVariableLocal(task.getId(), ASSIGNEE_ROLE)), role(tasks.getIdentityLinksForTask(task.getId()))),
                 fallback(task.getName(), task.getTaskDefinitionKey()), value(task.getDescription()),
                 attributes(variables.get(FlowableWorkflowProvider.ATTRIBUTES)),
                 actions(task, documentType));
