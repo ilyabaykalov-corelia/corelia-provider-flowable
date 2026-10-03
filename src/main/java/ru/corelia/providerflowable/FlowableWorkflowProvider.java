@@ -19,6 +19,7 @@ import ru.corelia.http.ApiException;
 import ru.corelia.provider.WorkflowProvider;
 import ru.corelia.provider.model.ProcessInstance;
 import ru.corelia.provider.model.WorkflowDefinition;
+import ru.corelia.provider.model.WorkflowDefinitionBpmn;
 import ru.corelia.provider.model.WorkflowContext;
 import ru.corelia.provider.model.WorkflowValidation;
 import ru.corelia.provider.model.WorkflowValidationError;
@@ -100,6 +101,21 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
                             deployment == null ? null : deployment.getDeploymentTime().toInstant(), null,
                             runtime.createProcessInstanceQuery().processDefinitionKey(definition.getKey()).count());
                 }).filter(java.util.Objects::nonNull).sorted(java.util.Comparator.comparing(WorkflowDefinition::key)).toList();
+    }
+
+    @Override
+    public java.util.Optional<WorkflowDefinitionBpmn> definitionBpmn(String key, AuthContext auth) {
+        var definition = repository.createProcessDefinitionQuery().processDefinitionKey(key).latestVersion().singleResult();
+        if (definition == null) return java.util.Optional.empty();
+        var deployment = repository.createDeploymentQuery().deploymentId(definition.getDeploymentId()).singleResult();
+        if (deployment == null || deployment.getName() == null || !deployment.getName().startsWith("corelia:")) return java.util.Optional.empty();
+        try (var source = repository.getProcessModel(definition.getId())) {
+            return java.util.Optional.of(new WorkflowDefinitionBpmn(definition.getKey(),
+                    definition.getName() == null || definition.getName().isBlank() ? definition.getKey() : definition.getName(),
+                    new String(source.readAllBytes(), StandardCharsets.UTF_8)));
+        } catch (java.io.IOException error) {
+            throw new ApiException(500, "Не удалось прочитать BPMN опубликованного процесса");
+        }
     }
 
     @Override
