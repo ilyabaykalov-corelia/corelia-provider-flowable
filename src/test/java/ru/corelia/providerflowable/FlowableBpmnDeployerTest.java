@@ -2,12 +2,14 @@ package ru.corelia.providerflowable;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import org.flowable.engine.ProcessEngineConfiguration;
 import org.flowable.engine.impl.cfg.StandaloneInMemProcessEngineConfiguration;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FlowableBpmnDeployerTest {
     @Test
@@ -60,6 +62,36 @@ class FlowableBpmnDeployerTest {
             assertEquals("complete", actions.getFirst().code());
             engine.getTaskService().complete(task.getId());
             assertFalse(engine.getRuntimeService().createProcessInstanceQuery().processInstanceId(instance.getId()).count() > 0);
+        } finally { engine.close(); }
+    }
+
+    @Test
+    void returnsActivityRuntimeByStableBpmnId() {
+        var engine = new StandaloneInMemProcessEngineConfiguration()
+                .setJdbcUrl("jdbc:h2:mem:flowable-runtime;DB_CLOSE_DELAY=-1")
+                .setJdbcDriver("org.h2.Driver").setJdbcUsername("sa").setJdbcPassword("")
+                .setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE).buildProcessEngine();
+        try {
+            engine.getRepositoryService().createDeployment().addString("runtime.bpmn20.xml", """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" targetNamespace="urn:corelia:test">
+                      <process id="runtime_approval" isExecutable="true"><startEvent id="start"/><userTask id="review"/><endEvent id="end"/>
+                        <sequenceFlow id="s1" sourceRef="start" targetRef="review"/><sequenceFlow id="s2" sourceRef="review" targetRef="end"/>
+                      </process>
+                    </definitions>
+                    """).deploy();
+            engine.getRuntimeService().startProcessInstanceByKey("runtime_approval", Map.of(
+                    FlowableWorkflowProvider.DOCUMENT_ID, "document-1",
+                    FlowableWorkflowProvider.DOCUMENT_TYPE, "PDS_CONTRACT"));
+            var provider = new FlowableWorkflowProvider(engine.getRuntimeService(), engine.getHistoryService(),
+                    engine.getRepositoryService(), null, null);
+
+            var runtime = provider.runtime("runtime_approval", null);
+
+            assertEquals(1, runtime.instances().size());
+            assertEquals("document-1", runtime.instances().getFirst().documentId());
+            assertTrue(runtime.instances().getFirst().activityIds().contains("review"));
+            assertTrue(runtime.activities().stream().anyMatch(value -> value.activityId().equals("review") && value.activeInstances() == 1));
         } finally { engine.close(); }
     }
 

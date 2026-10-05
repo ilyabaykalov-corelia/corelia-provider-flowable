@@ -1,11 +1,13 @@
 package ru.corelia.providerflowable;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.flowable.bpmn.converter.BpmnXMLConverter;
 import org.flowable.bpmn.model.SequenceFlow;
@@ -20,7 +22,10 @@ import ru.corelia.provider.WorkflowProvider;
 import ru.corelia.provider.model.ProcessInstance;
 import ru.corelia.provider.model.WorkflowDefinition;
 import ru.corelia.provider.model.WorkflowDefinitionBpmn;
+import ru.corelia.provider.model.WorkflowActivityRuntime;
+import ru.corelia.provider.model.WorkflowActiveInstance;
 import ru.corelia.provider.model.WorkflowContext;
+import ru.corelia.provider.model.WorkflowRuntime;
 import ru.corelia.provider.model.WorkflowValidation;
 import ru.corelia.provider.model.WorkflowValidationError;
 import ru.corelia.support.Json;
@@ -119,6 +124,27 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
     }
 
     @Override
+    public WorkflowRuntime runtime(String key, AuthContext auth) {
+        if (repository.createProcessDefinitionQuery().processDefinitionKey(key).count() == 0)
+            return WorkflowRuntime.empty();
+        var activityInstances = new TreeMap<String, Set<String>>();
+        var activitiesByInstance = new LinkedHashMap<String, Set<String>>();
+        runtime.createExecutionQuery().processDefinitionKey(key).list().forEach(execution -> {
+            String activityId = execution.getActivityId();
+            if (activityId == null || activityId.isBlank()) return;
+            activityInstances.computeIfAbsent(activityId, ignored -> new LinkedHashSet<>()).add(execution.getProcessInstanceId());
+            activitiesByInstance.computeIfAbsent(execution.getProcessInstanceId(), ignored -> new LinkedHashSet<>()).add(activityId);
+        });
+        var instances = runtime.createProcessInstanceQuery().processDefinitionKey(key).includeProcessVariables().list().stream()
+                .map(instance -> new WorkflowActiveInstance(instance.getId(), documentId(instance.getProcessVariables()),
+                        string(instance.getProcessVariables().get(DOCUMENT_TYPE)),
+                        activitiesByInstance.getOrDefault(instance.getId(), Set.of())))
+                .toList();
+        return new WorkflowRuntime(activityInstances.entrySet().stream()
+                .map(entry -> new WorkflowActivityRuntime(entry.getKey(), entry.getValue().size())).toList(), instances);
+    }
+
+    @Override
     public WorkflowValidation validateDefinition(String key, String bpmnXml, AuthContext auth) {
         try {
             validateNamespaces(bpmnXml);
@@ -212,6 +238,8 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
         Object value = variables.get(DOCUMENT_ID);
         return value instanceof String id ? id : "";
     }
+
+    private static String string(Object value) { return value instanceof String text ? text : ""; }
 
     private static String idempotencyKey(WorkflowContext context) {
         if (context.creationKey() != null && !context.creationKey().isBlank()) return context.creationKey();
