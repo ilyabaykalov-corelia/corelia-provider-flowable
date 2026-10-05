@@ -94,6 +94,34 @@ class FlowableBpmnDeployerTest {
     }
 
     @Test
+    void exportsTheOriginalPublishedXmlWithDiAndExtensions() throws Exception {
+        var engine = new StandaloneInMemProcessEngineConfiguration()
+                .setJdbcUrl("jdbc:h2:mem:flowable-export;DB_CLOSE_DELAY=-1")
+                .setJdbcDriver("org.h2.Driver").setJdbcUsername("sa").setJdbcPassword("")
+                .setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE).buildProcessEngine();
+        try {
+            String xml = """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:flowable="http://flowable.org/bpmn" xmlns:corelia="urn:corelia:bpmn" targetNamespace="urn:corelia:test">
+                      <process id="approval" isExecutable="true"><startEvent id="start"/><userTask id="review" flowable:assignee="operator" corelia:actions="complete"/><endEvent id="end"/>
+                        <sequenceFlow id="s1" sourceRef="start" targetRef="review"/><sequenceFlow id="s2" sourceRef="review" targetRef="end"/>
+                      </process>
+                      <bpmndi:BPMNDiagram id="diagram"><bpmndi:BPMNPlane id="plane" bpmnElement="approval"><bpmndi:BPMNShape id="review_di" bpmnElement="review"><dc:Bounds x="100" y="100" width="120" height="80"/></bpmndi:BPMNShape></bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+                    </definitions>
+                    """;
+            FlowableBpmnDeployer.deployIfMissing(engine.getRepositoryService(), "approval", "approval.bpmn20.xml", xml.getBytes());
+            var provider = new FlowableWorkflowProvider(engine.getRuntimeService(), engine.getHistoryService(), engine.getRepositoryService(), null, null);
+
+            var exported = provider.definitionBpmn("approval", null).orElseThrow();
+
+            assertEquals(xml, exported.bpmnXml());
+            assertEquals(1, exported.publishedVersion());
+            assertTrue(exported.definitionId() != null && !exported.definitionId().isBlank());
+            assertTrue(exported.deploymentId() != null && !exported.deploymentId().isBlank());
+        } finally { engine.close(); }
+    }
+
+    @Test
     void deploysEditorBpmnAndCreatesCompletableUserTask() throws Exception {
         var engine = new StandaloneInMemProcessEngineConfiguration()
                 .setJdbcUrl("jdbc:h2:mem:flowable-editor;DB_CLOSE_DELAY=-1")
