@@ -55,9 +55,12 @@ public final class FlowableBpmnDeployer implements ApplicationRunner {
         if (model.getProcessById(key) == null)
             throw new ConfigurationException("BPMN process key не соответствует ключу Corelia: " + key);
         String checksum = checksum(source), name = "corelia:" + key + ":" + checksum;
-        if (repository.createDeploymentQuery().deploymentName(name).count() == 0)
-            repository.createDeployment().name(name).key(key).addBytes(resourceName, source)
-                    .enableDuplicateFiltering().deploy();
+        var latest = repository.createProcessDefinitionQuery().processDefinitionKey(key).latestVersion().singleResult();
+        if (latest != null) {
+            var latestDeployment = repository.createDeploymentQuery().deploymentId(latest.getDeploymentId()).singleResult();
+            if (latestDeployment != null && name.equals(latestDeployment.getName())) return;
+        }
+        repository.createDeployment().name(name).key(key).addBytes(resourceName, source).deploy();
     }
 
     private static String checksum(byte[] source) throws Exception {
