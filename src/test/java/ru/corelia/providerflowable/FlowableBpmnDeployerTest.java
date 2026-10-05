@@ -61,11 +61,14 @@ class FlowableBpmnDeployerTest {
             FlowableBpmnDeployer.deployIfMissing(repository, "approval", "approval.bpmn20.xml", customer.getBytes());
             var third = engine.getRuntimeService().startProcessInstanceByKey("approval");
             FlowableBpmnDeployer.deployIfMissing(repository, "approval", "approval.bpmn20.xml", customer.getBytes());
+            FlowableBpmnDeployer.deployIfMissing(repository, "approval", "approval.bpmn20.xml", approvalBpmn("Updated customer review").getBytes());
+            var fourth = engine.getRuntimeService().startProcessInstanceByKey("approval");
 
-            assertEquals(3, repository.createProcessDefinitionQuery().processDefinitionKey("approval").count());
+            assertEquals(4, repository.createProcessDefinitionQuery().processDefinitionKey("approval").count());
             assertEquals(1, engine.getRuntimeService().createProcessInstanceQuery().processInstanceId(first.getId()).singleResult().getProcessDefinitionVersion());
             assertEquals(2, engine.getRuntimeService().createProcessInstanceQuery().processInstanceId(second.getId()).singleResult().getProcessDefinitionVersion());
             assertEquals(3, engine.getRuntimeService().createProcessInstanceQuery().processInstanceId(third.getId()).singleResult().getProcessDefinitionVersion());
+            assertEquals(4, engine.getRuntimeService().createProcessInstanceQuery().processInstanceId(fourth.getId()).singleResult().getProcessDefinitionVersion());
         } finally { engine.close(); }
     }
 
