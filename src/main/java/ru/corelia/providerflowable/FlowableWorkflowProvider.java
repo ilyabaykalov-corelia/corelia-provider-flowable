@@ -1,11 +1,13 @@
 package ru.corelia.providerflowable;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.flowable.bpmn.converter.BpmnXMLConverter;
 import org.flowable.bpmn.model.SequenceFlow;
@@ -20,7 +22,10 @@ import ru.corelia.provider.WorkflowProvider;
 import ru.corelia.provider.model.ProcessInstance;
 import ru.corelia.provider.model.WorkflowDefinition;
 import ru.corelia.provider.model.WorkflowDefinitionBpmn;
+import ru.corelia.provider.model.WorkflowActivityRuntime;
+import ru.corelia.provider.model.WorkflowActiveInstance;
 import ru.corelia.provider.model.WorkflowContext;
+import ru.corelia.provider.model.WorkflowRuntime;
 import ru.corelia.provider.model.WorkflowValidation;
 import ru.corelia.provider.model.WorkflowValidationError;
 import ru.corelia.support.Json;
@@ -99,7 +104,8 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
                             definition.getName() == null || definition.getName().isBlank() ? definition.getKey() : definition.getName(),
                             definition.getKey(), definition.getVersion(), false, "PUBLISHED",
                             deployment == null ? null : deployment.getDeploymentTime().toInstant(), null,
-                            runtime.createProcessInstanceQuery().processDefinitionKey(definition.getKey()).count());
+                            runtime.createProcessInstanceQuery().processDefinitionKey(definition.getKey()).count(),
+                            definition.getId(), definition.getDeploymentId());
                 }).filter(java.util.Objects::nonNull).sorted(java.util.Comparator.comparing(WorkflowDefinition::key)).toList();
     }
 
@@ -112,10 +118,32 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
         try (var source = repository.getProcessModel(definition.getId())) {
             return java.util.Optional.of(new WorkflowDefinitionBpmn(definition.getKey(),
                     definition.getName() == null || definition.getName().isBlank() ? definition.getKey() : definition.getName(),
-                    new String(source.readAllBytes(), StandardCharsets.UTF_8)));
+                    new String(source.readAllBytes(), StandardCharsets.UTF_8), definition.getVersion(),
+                    definition.getId(), definition.getDeploymentId()));
         } catch (java.io.IOException error) {
             throw new ApiException(500, "Не удалось прочитать BPMN опубликованного процесса");
         }
+    }
+
+    @Override
+    public WorkflowRuntime runtime(String key, AuthContext auth) {
+        if (repository.createProcessDefinitionQuery().processDefinitionKey(key).count() == 0)
+            return WorkflowRuntime.empty();
+        var activityInstances = new TreeMap<String, Set<String>>();
+        var activitiesByInstance = new LinkedHashMap<String, Set<String>>();
+        runtime.createExecutionQuery().processDefinitionKey(key).list().forEach(execution -> {
+            String activityId = execution.getActivityId();
+            if (activityId == null || activityId.isBlank()) return;
+            activityInstances.computeIfAbsent(activityId, ignored -> new LinkedHashSet<>()).add(execution.getProcessInstanceId());
+            activitiesByInstance.computeIfAbsent(execution.getProcessInstanceId(), ignored -> new LinkedHashSet<>()).add(activityId);
+        });
+        var instances = runtime.createProcessInstanceQuery().processDefinitionKey(key).includeProcessVariables().list().stream()
+                .map(instance -> new WorkflowActiveInstance(instance.getId(), documentId(instance.getProcessVariables()),
+                        string(instance.getProcessVariables().get(DOCUMENT_TYPE)),
+                        activitiesByInstance.getOrDefault(instance.getId(), Set.of())))
+                .toList();
+        return new WorkflowRuntime(activityInstances.entrySet().stream()
+                .map(entry -> new WorkflowActivityRuntime(entry.getKey(), entry.getValue().size())).toList(), instances);
     }
 
     @Override
@@ -138,12 +166,14 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
     }
 
     @Override
-    public WorkflowDefinition publishDefinition(String key, String name, String bpmnXml, AuthContext auth) {
+    public WorkflowDefinition publishDefinition(String key, String name, String bpmnXml, int expectedPublishedVersion, AuthContext auth) {
         var validation = validateDefinition(key, bpmnXml, auth);
         if (!validation.valid()) throw new ApiException(400, validation.errors().getFirst().message());
         if (deploymentLock == null) throw new IllegalStateException("Не настроена блокировка публикации BPMN");
         try {
-            deploymentLock.deployDraft(repository, key, bpmnXml);
+            deploymentLock.deployDraft(repository, key, bpmnXml, expectedPublishedVersion);
+        } catch (ApiException error) {
+            throw error;
         } catch (Exception error) {
             throw new ApiException(500, "Не удалось опубликовать BPMN процесс");
         }
@@ -151,7 +181,8 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
         var deployment = repository.createDeploymentQuery().deploymentId(definition.getDeploymentId()).singleResult();
         return new WorkflowDefinition(name, key, definition.getVersion(), true, "PUBLISHED",
                 deployment.getDeploymentTime().toInstant(), auth.login(),
-                runtime.createProcessInstanceQuery().processDefinitionKey(key).count());
+                runtime.createProcessInstanceQuery().processDefinitionKey(key).count(),
+                definition.getId(), definition.getDeploymentId());
     }
 
     @Override
@@ -212,6 +243,8 @@ public class FlowableWorkflowProvider implements WorkflowProvider {
         Object value = variables.get(DOCUMENT_ID);
         return value instanceof String id ? id : "";
     }
+
+    private static String string(Object value) { return value instanceof String text ? text : ""; }
 
     private static String idempotencyKey(WorkflowContext context) {
         if (context.creationKey() != null && !context.creationKey().isBlank()) return context.creationKey();

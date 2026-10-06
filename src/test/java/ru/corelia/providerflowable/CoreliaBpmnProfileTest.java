@@ -1,5 +1,8 @@
 package ru.corelia.providerflowable;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import org.flowable.bpmn.converter.BpmnXMLConverter;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.bpmn.model.ExtensionAttribute;
 import org.flowable.bpmn.model.Process;
@@ -12,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import ru.corelia.configuration.ConfigurationException;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class CoreliaBpmnProfileTest {
@@ -44,6 +48,21 @@ class CoreliaBpmnProfileTest {
         timer.addEventDefinition(new TimerEventDefinition());
 
         assertDoesNotThrow(() -> CoreliaBpmnProfile.validate(model(timer)));
+    }
+
+    @Test
+    void acceptsConfiguredPdsTimerEventWithDiagramInterchange() throws Exception {
+        String xml;
+        try (var source = getClass().getResourceAsStream("/bpmn/pds-contract-process.bpmn20.xml")) {
+            assertNotNull(source);
+            xml = new String(source.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        var model = new BpmnXMLConverter().convertToBpmnModel(
+                () -> new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)), false, false);
+
+        assertNotNull(model.getProcessById("pds_contract_process").getFlowElement("Timer_WaitForCheck"));
+        assertNotNull(model.getGraphicInfo("Timer_WaitForCheck"));
+        assertDoesNotThrow(() -> CoreliaBpmnProfile.validate(model));
     }
 
     @Test

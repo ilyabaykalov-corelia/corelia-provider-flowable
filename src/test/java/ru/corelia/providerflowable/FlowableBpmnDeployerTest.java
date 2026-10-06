@@ -2,12 +2,18 @@ package ru.corelia.providerflowable;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import org.flowable.engine.ProcessEngineConfiguration;
 import org.flowable.engine.impl.cfg.StandaloneInMemProcessEngineConfiguration;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import ru.corelia.http.ApiException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class FlowableBpmnDeployerTest {
     @Test
@@ -39,6 +45,83 @@ class FlowableBpmnDeployerTest {
     }
 
     @Test
+    void restoresCustomerBpmnAsLatestAfterRuntimeVersionWithoutDuplicatingAnUnchangedBootstrap() throws Exception {
+        var engine = new StandaloneInMemProcessEngineConfiguration()
+                .setJdbcUrl("jdbc:h2:mem:flowable-config-restore;DB_CLOSE_DELAY=-1")
+                .setJdbcDriver("org.h2.Driver").setJdbcUsername("sa").setJdbcPassword("")
+                .setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE).buildProcessEngine();
+        try {
+            var repository = engine.getRepositoryService();
+            String customer = approvalBpmn("Customer review");
+            FlowableBpmnDeployer.deployIfMissing(repository, "approval", "approval.bpmn20.xml", customer.getBytes());
+            var first = engine.getRuntimeService().startProcessInstanceByKey("approval");
+
+            FlowableBpmnDeployer.deployIfMissing(repository, "approval", "approval.bpmn20.xml", approvalBpmn("Runtime review").getBytes());
+            var second = engine.getRuntimeService().startProcessInstanceByKey("approval");
+            FlowableBpmnDeployer.deployIfMissing(repository, "approval", "approval.bpmn20.xml", customer.getBytes());
+            var third = engine.getRuntimeService().startProcessInstanceByKey("approval");
+            FlowableBpmnDeployer.deployIfMissing(repository, "approval", "approval.bpmn20.xml", customer.getBytes());
+            FlowableBpmnDeployer.deployIfMissing(repository, "approval", "approval.bpmn20.xml", approvalBpmn("Updated customer review").getBytes());
+            var fourth = engine.getRuntimeService().startProcessInstanceByKey("approval");
+
+            assertEquals(4, repository.createProcessDefinitionQuery().processDefinitionKey("approval").count());
+            assertEquals(1, engine.getRuntimeService().createProcessInstanceQuery().processInstanceId(first.getId()).singleResult().getProcessDefinitionVersion());
+            assertEquals(2, engine.getRuntimeService().createProcessInstanceQuery().processInstanceId(second.getId()).singleResult().getProcessDefinitionVersion());
+            assertEquals(3, engine.getRuntimeService().createProcessInstanceQuery().processInstanceId(third.getId()).singleResult().getProcessDefinitionVersion());
+            assertEquals(4, engine.getRuntimeService().createProcessInstanceQuery().processInstanceId(fourth.getId()).singleResult().getProcessDefinitionVersion());
+        } finally { engine.close(); }
+    }
+
+    @Test
+    void rejectsPublishingFromAnOutdatedVersion() throws Exception {
+        String url = "jdbc:h2:mem:flowable-stale-publish;DB_CLOSE_DELAY=-1";
+        var engine = new StandaloneInMemProcessEngineConfiguration()
+                .setJdbcUrl(url).setJdbcDriver("org.h2.Driver").setJdbcUsername("sa").setJdbcPassword("")
+                .setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE).buildProcessEngine();
+        try {
+            var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, "sa", ""));
+            jdbc.execute("create table flowable_bpmn_deployment_lock (lock_id int primary key)");
+            jdbc.update("insert into flowable_bpmn_deployment_lock (lock_id) values (1)");
+            var lock = new FlowableBpmnDeploymentLock(jdbc);
+            var repository = engine.getRepositoryService();
+            FlowableBpmnDeployer.deployIfMissing(repository, "approval", "approval.bpmn20.xml", approvalBpmn("Customer review").getBytes());
+
+            lock.deployDraft(repository, "approval", approvalBpmn("Editor review"), 1);
+
+            assertThrows(ApiException.class, () -> lock.deployDraft(repository, "approval", approvalBpmn("Stale review"), 1));
+            assertEquals(2, repository.createProcessDefinitionQuery().processDefinitionKey("approval").count());
+        } finally { engine.close(); }
+    }
+
+    @Test
+    void exportsTheOriginalPublishedXmlWithDiAndExtensions() throws Exception {
+        var engine = new StandaloneInMemProcessEngineConfiguration()
+                .setJdbcUrl("jdbc:h2:mem:flowable-export;DB_CLOSE_DELAY=-1")
+                .setJdbcDriver("org.h2.Driver").setJdbcUsername("sa").setJdbcPassword("")
+                .setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE).buildProcessEngine();
+        try {
+            String xml = """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:flowable="http://flowable.org/bpmn" xmlns:corelia="urn:corelia:bpmn" targetNamespace="urn:corelia:test">
+                      <process id="approval" isExecutable="true"><startEvent id="start"/><userTask id="review" flowable:assignee="operator" corelia:actions="complete"/><endEvent id="end"/>
+                        <sequenceFlow id="s1" sourceRef="start" targetRef="review"/><sequenceFlow id="s2" sourceRef="review" targetRef="end"/>
+                      </process>
+                      <bpmndi:BPMNDiagram id="diagram"><bpmndi:BPMNPlane id="plane" bpmnElement="approval"><bpmndi:BPMNShape id="review_di" bpmnElement="review"><dc:Bounds x="100" y="100" width="120" height="80"/></bpmndi:BPMNShape></bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+                    </definitions>
+                    """;
+            FlowableBpmnDeployer.deployIfMissing(engine.getRepositoryService(), "approval", "approval.bpmn20.xml", xml.getBytes());
+            var provider = new FlowableWorkflowProvider(engine.getRuntimeService(), engine.getHistoryService(), engine.getRepositoryService(), null, null);
+
+            var exported = provider.definitionBpmn("approval", null).orElseThrow();
+
+            assertEquals(xml, exported.bpmnXml());
+            assertEquals(1, exported.publishedVersion());
+            assertTrue(exported.definitionId() != null && !exported.definitionId().isBlank());
+            assertTrue(exported.deploymentId() != null && !exported.deploymentId().isBlank());
+        } finally { engine.close(); }
+    }
+
+    @Test
     void deploysEditorBpmnAndCreatesCompletableUserTask() throws Exception {
         var engine = new StandaloneInMemProcessEngineConfiguration()
                 .setJdbcUrl("jdbc:h2:mem:flowable-editor;DB_CLOSE_DELAY=-1")
@@ -63,6 +146,36 @@ class FlowableBpmnDeployerTest {
         } finally { engine.close(); }
     }
 
+    @Test
+    void returnsActivityRuntimeByStableBpmnId() {
+        var engine = new StandaloneInMemProcessEngineConfiguration()
+                .setJdbcUrl("jdbc:h2:mem:flowable-runtime;DB_CLOSE_DELAY=-1")
+                .setJdbcDriver("org.h2.Driver").setJdbcUsername("sa").setJdbcPassword("")
+                .setDatabaseSchemaUpdate(ProcessEngineConfiguration.DB_SCHEMA_UPDATE_TRUE).buildProcessEngine();
+        try {
+            engine.getRepositoryService().createDeployment().addString("runtime.bpmn20.xml", """
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" targetNamespace="urn:corelia:test">
+                      <process id="runtime_approval" isExecutable="true"><startEvent id="start"/><userTask id="review"/><endEvent id="end"/>
+                        <sequenceFlow id="s1" sourceRef="start" targetRef="review"/><sequenceFlow id="s2" sourceRef="review" targetRef="end"/>
+                      </process>
+                    </definitions>
+                    """).deploy();
+            engine.getRuntimeService().startProcessInstanceByKey("runtime_approval", Map.of(
+                    FlowableWorkflowProvider.DOCUMENT_ID, "document-1",
+                    FlowableWorkflowProvider.DOCUMENT_TYPE, "PDS_CONTRACT"));
+            var provider = new FlowableWorkflowProvider(engine.getRuntimeService(), engine.getHistoryService(),
+                    engine.getRepositoryService(), null, null);
+
+            var runtime = provider.runtime("runtime_approval", null);
+
+            assertEquals(1, runtime.instances().size());
+            assertEquals("document-1", runtime.instances().getFirst().documentId());
+            assertTrue(runtime.instances().getFirst().activityIds().contains("review"));
+            assertTrue(runtime.activities().stream().anyMatch(value -> value.activityId().equals("review") && value.activeInstances() == 1));
+        } finally { engine.close(); }
+    }
+
     private static String bpmn(String content) {
         return """
                 <?xml version="1.0" encoding="UTF-8"?>
@@ -74,5 +187,16 @@ class FlowableBpmnDeployerTest {
                   </process>
                 </definitions>
                 """.formatted(content);
+    }
+
+    private static String approvalBpmn(String taskName) {
+        return """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" targetNamespace="urn:corelia:test">
+                  <process id="approval" isExecutable="true"><startEvent id="start"/><userTask id="review" name="%s"/><endEvent id="end"/>
+                    <sequenceFlow id="s1" sourceRef="start" targetRef="review"/><sequenceFlow id="s2" sourceRef="review" targetRef="end"/>
+                  </process>
+                </definitions>
+                """.formatted(taskName);
     }
 }
